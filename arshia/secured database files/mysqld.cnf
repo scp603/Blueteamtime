@@ -1,0 +1,33 @@
+# MySQL Hardened Configuration
+# Applied by Blue Team Firewall Hardening
+
+[mysqld]
+# Network Security
+bind-address = 10.10.10.102
+port = 3306
+
+# Disable dangerous features
+local_infile = 0
+symbolic-links = 0
+skip-show-database
+
+# Performance and Security
+skip-name-resolve = 1
+max_connections = 150
+max_connect_errors = 10
+connect_timeout = 10
+max_allowed_packet = 16M
+
+# Logging
+log_error = /var/log/mysql/error.log
+log_warnings = 2
+
+# Character set
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+
+[mysql]
+no-auto-rehash
+
+[client]
+port = 3306
