@@ -331,6 +331,17 @@ ok "World-writable list saved"
 # =============================================================================
 log "=== Setting immutable flag on critical auth files ==="
 
+# Ubuntu workstations (BLUE-LIN-01 through 05) are not scored SSH servers.
+# PasswordAuthentication must be no — if an attacker set it to yes, lock that out before freezing.
+if [[ -f /etc/ssh/sshd_config ]]; then
+    chattr -i /etc/ssh/sshd_config 2>/dev/null || true
+    if grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config 2>/dev/null; then
+        warn "PasswordAuthentication is yes — correcting to no before locking"
+        sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+        ok "Set PasswordAuthentication no"
+    fi
+fi
+
 for f in /etc/passwd /etc/shadow /etc/gshadow /etc/group \
          /etc/sudoers /etc/ssh/sshd_config /etc/ld.so.preload; do
     [[ -f "$f" ]] || continue
@@ -339,6 +350,54 @@ done
 
 # To undo before making legitimate changes:
 # chattr -i /etc/passwd  (etc.)
+
+# =============================================================================
+# /tmp AND /dev/shm HARDENING — noexec, nosuid, nodev
+# Wagon stages binaries in /tmp/.cache, beacon.py stages in /tmp/.sys/,
+# Vanini's sshbeacon stages through /tmp. Blocking execution here kills
+# all three staging paths.
+# =============================================================================
+log "=== Hardening /tmp and /dev/shm ==="
+
+# Remount /tmp with noexec if it's a separate mount or tmpfs
+if mountpoint -q /tmp 2>/dev/null; then
+    mount -o remount,noexec,nosuid,nodev /tmp 2>/dev/null \
+        && ok "/tmp remounted noexec,nosuid,nodev" \
+        || warn "/tmp remount failed"
+else
+    # /tmp is on the root filesystem — bind-mount it as tmpfs with noexec
+    if ! grep -q '/tmp.*noexec' /etc/fstab; then
+        echo "tmpfs /tmp tmpfs defaults,noexec,nosuid,nodev,size=512M 0 0" >> /etc/fstab
+        mount -o remount /tmp 2>/dev/null || mount /tmp 2>/dev/null || true
+        ok "Added /tmp as tmpfs with noexec to fstab"
+    fi
+fi
+
+# Remount /dev/shm with noexec (fileless malware staging)
+if mountpoint -q /dev/shm 2>/dev/null; then
+    mount -o remount,noexec,nosuid,nodev /dev/shm 2>/dev/null \
+        && ok "/dev/shm remounted noexec,nosuid,nodev" \
+        || warn "/dev/shm remount failed"
+fi
+if ! grep -q '/dev/shm.*noexec' /etc/fstab; then
+    echo "tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev 0 0" >> /etc/fstab
+    ok "Added /dev/shm noexec to fstab"
+fi
+
+# Remount /var/tmp with noexec
+if mountpoint -q /var/tmp 2>/dev/null; then
+    mount -o remount,noexec,nosuid,nodev /var/tmp 2>/dev/null \
+        && ok "/var/tmp remounted noexec,nosuid,nodev" \
+        || warn "/var/tmp remount failed"
+fi
+
+# Clean out known Red Team staging directories
+for d in /tmp/.cache /tmp/.sys /tmp/.X11-unix/.hidden /dev/shm/.tmp; do
+    if [[ -d "$d" ]]; then
+        rm -rf "$d"
+        warn "Removed suspicious directory: $d"
+    fi
+done
 
 # =============================================================================
 # LOCK DOWN APT — block reinstall of firewall packages

@@ -65,15 +65,27 @@ for cmd in clang llc bpftool; do
     command -v "$cmd" &>/dev/null || missing+=("$cmd")
 done
 
+# Kernel headers: Debian/Ubuntu uses /usr/src/linux-headers-*, Rocky uses /usr/src/kernels/*
 KHEADERS="/usr/src/linux-headers-$(uname -r)"
-[[ -d "$KHEADERS" ]] || missing+=("linux-headers-$(uname -r)")
+if [[ ! -d "$KHEADERS" ]]; then
+    KHEADERS="/usr/src/kernels/$(uname -r)"
+fi
+[[ -d "$KHEADERS" ]] || missing+=("kernel-headers-$(uname -r)")
 
 if [[ ${#missing[@]} -gt 0 ]]; then
     warn "Missing: ${missing[*]}"
     log "Installing missing dependencies..."
-    apt-get install -y clang llvm libbpf-dev bpftool \
-        "linux-headers-$(uname -r)" 2>&1 | tee -a "$LOG" \
-        || die "Dependency install failed — run triage.sh first"
+    if command -v apt-get &>/dev/null; then
+        apt-get install -y clang llvm libbpf-dev bpftool \
+            "linux-headers-$(uname -r)" 2>&1 | tee -a "$LOG" \
+            || die "Dependency install failed — run triage.sh first"
+    elif command -v dnf &>/dev/null; then
+        dnf install -y clang llvm libbpf-devel bpftool \
+            kernel-devel 2>&1 | tee -a "$LOG" \
+            || die "Dependency install failed — run triage-rocky.sh first"
+    else
+        die "No supported package manager found (need apt-get or dnf)"
+    fi
 fi
 ok "All dependencies present"
 
@@ -273,7 +285,9 @@ echo "IFACE=$IFACE"                 >> "$FW_DIR/map_ids"
 echo "XDP_MODE=$XDP_MODE"           >> "$FW_DIR/map_ids"
 ok "Map IDs saved to $FW_DIR/map_ids"
 
-# --- Overseer / protected IPs (Rule #8 — never block these) ---
+# --- Overseer / protected IPs (Rules #6, #7 — never block these) ---
+# Full Overseer range per Blue Team Packet: 10.10.10.200-210
+# Ansible-Server: 10.10.10.255  Scoring-Server: 10.10.10.210
 ip_to_hex() {
     # Convert dotted-quad to little-endian hex for bpftool
     IFS=. read -r a b c d <<< "$1"
@@ -284,6 +298,15 @@ OVERSEER_IPS=(
     "10.10.10.200"
     "10.10.10.201"
     "10.10.10.202"
+    "10.10.10.203"
+    "10.10.10.204"
+    "10.10.10.205"
+    "10.10.10.206"
+    "10.10.10.207"
+    "10.10.10.208"
+    "10.10.10.209"
+    "10.10.10.210"
+    "10.10.10.255"
 )
 # Add your team workstation IPs here if they have a fixed IP
 
@@ -351,8 +374,9 @@ IP="$1"
 [[ "$IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
     || { echo "Invalid IP: $IP" >&2; exit 1; }
 
-# Safety: refuse to block Overseer IPs
-OVERSEER_IPS=("10.10.10.200" "10.10.10.201" "10.10.10.202")
+# Safety: refuse to block Overseer IPs (full range 200-210 + 255 per packet)
+# Rule #7: get Overseer approval before calling this command for any IP.
+OVERSEER_IPS=("10.10.10.200" "10.10.10.201" "10.10.10.202" "10.10.10.203" "10.10.10.204" "10.10.10.205" "10.10.10.206" "10.10.10.207" "10.10.10.208" "10.10.10.209" "10.10.10.210" "10.10.10.255")
 for o in "${OVERSEER_IPS[@]}"; do
     [[ "$IP" == "$o" ]] && { echo "Refusing to block Overseer IP: $IP (Rule #8)" >&2; exit 1; }
 done
@@ -503,10 +527,14 @@ ok "ntf-fw.service enabled — XDP will reload on boot"
 log "\n--- Removing iptables / nftables / ufw userspace tools ---"
 
 for pkg in iptables nftables ufw firewalld; do
-    if dpkg -l "$pkg" &>/dev/null 2>&1; then
+    if command -v apt-get &>/dev/null && dpkg -l "$pkg" &>/dev/null 2>&1; then
         apt-get remove -y --purge "$pkg" 2>&1 | tee -a "$LOG" \
-            && hit "Removed: $pkg" \
+            && hit "Removed: $pkg (apt)" \
             || warn "Could not remove $pkg via apt — renaming binaries"
+    elif command -v dnf &>/dev/null && rpm -q "$pkg" &>/dev/null 2>&1; then
+        dnf remove -y "$pkg" 2>&1 | tee -a "$LOG" \
+            && hit "Removed: $pkg (dnf)" \
+            || warn "Could not remove $pkg via dnf — renaming binaries"
     fi
 done
 
@@ -521,7 +549,8 @@ for bin in iptables iptables-save iptables-restore ip6tables \
         || warn "Could not rename $path"
 done
 
-# The apt pin from triage.sh (-1 priority) blocks reinstall via apt.
+# The apt pin from triage.sh (-1 priority) or dnf excludepkgs from
+# triage-rocky.sh blocks reinstall via package manager.
 # Also lock bpftool itself so Red Team can't use it to unload our program
 # (they'd need to use ip link set xdp off, which we can also protect)
 if command -v bpftool &>/dev/null; then

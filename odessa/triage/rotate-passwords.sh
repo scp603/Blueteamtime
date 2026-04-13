@@ -37,12 +37,14 @@ hit()  { echo -e "${RED}[ROT]${RST}  $*" | tee -a "$LOG"; }
 #
 # root:       obvious
 # cyberrange: packet-defined user, scoring infra authenticates as Cyberrange123!
-# GREYTEAM:   Overseer account — changing it violates competition rules
+# GREYTEAM/greyteam: Overseer account — changing it violates competition rules
+# scp073:     scored SSH user on SCP-OPENSSH-01 (password: abel_is_dead)
+# scp343:     scored SSH user on SCP-OPENSSH-01 (password: 4ll-p0w3rfuL)
+# ntf:        Blue Team operational account — set by fix scripts
 #
-# ADD supplemental packet users here when that packet is released:
-# e.g., PROTECTED_USERS+=("scp_admin" "d_class")
+# ADD supplemental packet users here when that packet is released.
 # =============================================================================
-PROTECTED_USERS=("root" "cyberrange" "GREYTEAM")
+PROTECTED_USERS=("root" "cyberrange" "GREYTEAM" "greyteam" "scp073" "scp343" "ntf")
 
 log "${BLD}=== Password Rotation — $(hostname) ===${RST}"
 log "Protected (skipped): ${PROTECTED_USERS[*]}"

@@ -56,7 +56,7 @@ uid_to_user() {
 
 # =============================================================================
 # STEP 1: Parse /proc/net/tcp and /proc/net/tcp6
-# Find ESTABLISHED (state 0x0A) connections where local port = 22 (0x0016)
+# Find ESTABLISHED (state 0x01) connections where local port = 22 (0x0016)
 # Format: inode → "remote_ip:remote_port uid"
 # =============================================================================
 
@@ -71,7 +71,7 @@ parse_tcp_table() {
 
     while read -r sl local_addr rem_addr st _ _ _ _ _ uid _ inode _rest; do
         [[ "$sl" == "sl" ]] && continue       # header line
-        [[ "$st" != "0A" ]] && continue       # only ESTABLISHED
+        [[ "$st" != "01" ]] && continue       # only ESTABLISHED (0x01)
 
         local_port_hex="${local_addr##*:}"
         local_port=$(hex_to_port "$local_port_hex")

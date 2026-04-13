@@ -49,7 +49,10 @@ log "\n--- [1] Rotating all unprotected local accounts ---"
 # Protected (competition packet users — do NOT rotate these):
 #   cyberrange — listed in packet with default password Cyberrange123!
 #   GREYTEAM   — Overseer account, must not be changed per rules
-PROTECTED_USERS=("root" "cyberrange" "GREYTEAM")
+#   greyteam   — lowercase variant (Linux is case-sensitive)
+#   scp073     — NON-PRIVILEGED SCORING USER — DO NOT MODIFY (breaks scoring)
+#   scp343     — PRIVILEGED SCORING USER — DO NOT MODIFY (breaks scoring)
+PROTECTED_USERS=("root" "cyberrange" "GREYTEAM" "greyteam" "scp073" "scp343")
 
 while IFS=: read -r username _ uid _ _ _ shell; do
     [[ "$uid" -lt 1000 ]] && continue
@@ -135,17 +138,22 @@ SSHD_CONFIG="/etc/ssh/sshd_config"
 chattr -i "$SSHD_CONFIG" 2>/dev/null || true
 cp "$SSHD_CONFIG" "$LOG.sshd_config.bak"
 
-# Disable password auth if keys are available
-if [[ -f /root/.ssh/authorized_keys ]] || ls /home/*/.ssh/authorized_keys 2>/dev/null | head -1 &>/dev/null; then
-    sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' "$SSHD_CONFIG"
-    grep -q "^PasswordAuthentication" "$SSHD_CONFIG" \
-        || echo "PasswordAuthentication no" >> "$SSHD_CONFIG"
-    hit "PasswordAuthentication disabled — attacker cannot use Cyberrange123! anymore"
-    warn "Verify you have key-based access before closing this session"
-else
-    warn "No authorized_keys found — leaving password auth enabled to avoid lockout"
-    warn "Add your SSH public key, then re-run or manually set PasswordAuthentication no"
-fi
+# SCORING SAFETY: The scoring engine authenticates scp343 and scp073 via
+# password (paramiko with look_for_keys=False). Setting PasswordAuthentication
+# to no will break SSH functional scoring (-30 pts every 60 seconds).
+#
+# Instead of disabling password auth globally, we leave it enabled and rely on:
+#   - fail2ban to throttle brute force
+#   - MaxAuthTries 2 to limit attempts per connection
+#   - auditd to alert on suspicious logins
+#   - inoculation (step 4) to lock sshd_config immutable after hardening
+#
+# If you MUST disable password auth (e.g., active credential stuffing), use a
+# Match block to preserve scorer access:
+#   Match User scp343,scp073,cyberrange,greyteam
+#       PasswordAuthentication yes
+warn "PasswordAuthentication left ENABLED — required for SSH scoring (scp343/scp073)"
+warn "Scorer uses password auth with look_for_keys=False — disabling it breaks scoring"
 
 # Limit auth attempts
 sed -i 's/^#*MaxAuthTries.*/MaxAuthTries 2/' "$SSHD_CONFIG"
@@ -174,8 +182,9 @@ ok "SSH restarted with hardened config"
 # =============================================================================
 log "\n--- [5] Per-IP firewall helper ---"
 
-# Rule #8: firewalling off entire subnets is prohibited.
-# Block individual confirmed attacker IPs only.
+# Rule #7: ALL firewall/network changes require Overseer approval BEFORE implementing.
+# Rule #6: Never block Overseer IPs or scoring traffic.
+# Block individual confirmed attacker IPs only — report each to Overseers first.
 # Scored service ports — NEVER block:
 #   22 (SSH), 25/465/587 (SMTP), 53 (DNS), 80/443 (Apache/HTTPS),
 #   88/389/636 (Kerberos/LDAP), 139/445 (SMB), 1194 (OpenVPN),

@@ -29,35 +29,120 @@ log "Logging to $LOG"
 # =============================================================================
 log "=== Installing packages ==="
 
-# Enable EPEL — required for unhide, rkhunter, lynis, fail2ban, psad, chkrootkit, inotify-tools
+# Enable EPEL + CRB repos
 dnf install -y epel-release 2>&1 | tee -a "$LOG" || warn "EPEL install failed — some packages may be unavailable"
+# dnf5 (Rocky 10+) changed config-manager syntax; try both
+dnf config-manager setopt crb.enabled=1 2>&1 | tee -a "$LOG" \
+    || dnf config-manager --set-enabled crb 2>&1 | tee -a "$LOG" \
+    || warn "CRB repo enable failed"
 
 dnf makecache -q
 
+# Packages available in Rocky 10 + EPEL 10 + CRB repos
 PACKAGES=(
-    unhide           # hidden process detection (EPEL)
-    audit            # kernel audit framework (replaces auditd on Rocky)
-    audispd-plugins  # auditd dispatcher plugins
+    audit            # kernel audit framework (includes audispd-plugins on Rocky 10)
     aide             # file integrity monitoring
-    rkhunter         # rootkit / backdoor scanner (EPEL)
-    lynis            # security auditing & hardening advisor (EPEL)
     fail2ban         # brute-force mitigation via log parsing (EPEL)
-    psad             # port scan detection (EPEL)
     net-tools        # netstat
     lsof             # open file / socket listing
     sysstat          # sar, iostat, pidstat
     psacct           # process accounting — lastcomm, sa (Rocky name for acct)
-    chkrootkit       # second rootkit scanner (EPEL)
     inotify-tools    # inotifywait for real-time file watch (EPEL)
     curl wget        # needed by some detections / clones
     clang llvm       # needed if building XDP firewall
-    libbpf-devel     # XDP dependency (Rocky naming convention)
-    kernel-devel     # XDP / module build dep (Rocky naming convention)
-    bpftool          # inspect loaded BPF programs (remove later if desired)
+    libbpf-devel     # XDP dependency (CRB repo)
+    kernel-devel     # XDP / module build dep
+    bpftool          # inspect loaded BPF programs
+    git gcc make     # build deps for source installs below
+    perl             # required by rkhunter & psad
+    glibc-static     # required by chkrootkit build
 )
 
 dnf install -y "${PACKAGES[@]}" 2>&1 | tee -a "$LOG" || warn "Some packages failed — check log"
-ok "Package install done"
+ok "Repo package install done"
+
+# =============================================================================
+# SOURCE INSTALLS — not packaged in Rocky 10 / EPEL 10
+# =============================================================================
+log "=== Installing tools from source ==="
+
+# --- unhide (hidden process detection) ---
+if ! command -v unhide &>/dev/null; then
+    log "Building unhide from source..."
+    cd /tmp
+    git clone --depth 1 https://github.com/YJesus/Unhide.git 2>&1 | tee -a "$LOG"
+    cd /tmp/Unhide
+    gcc -Wall -O2 -o unhide \
+        unhide-linux.c unhide-linux-bruteforce.c unhide-linux-compound.c \
+        unhide-linux-procfs.c unhide-linux-syscall.c unhide-output.c -lpthread 2>&1 | tee -a "$LOG"
+    gcc -Wall -O2 -o unhide-tcp \
+        unhide-tcp.c unhide-tcp-fast.c unhide-output.c -lpthread 2>&1 | tee -a "$LOG"
+    cp unhide unhide-tcp /usr/local/bin/
+    ok "unhide installed from source"
+    cd "$SCRIPT_DIR"
+else
+    ok "unhide already installed"
+fi
+
+# --- chkrootkit (rootkit scanner) ---
+if ! command -v chkrootkit &>/dev/null; then
+    log "Building chkrootkit from source..."
+    cd /tmp
+    git clone --depth 1 https://github.com/Magentron/chkrootkit.git 2>&1 | tee -a "$LOG"
+    cd /tmp/chkrootkit
+    make sense 2>&1 | tee -a "$LOG"
+    cp chkrootkit /usr/local/sbin/
+    ok "chkrootkit installed from source"
+    cd "$SCRIPT_DIR"
+else
+    ok "chkrootkit already installed"
+fi
+
+# --- rkhunter (rootkit / backdoor scanner) ---
+if ! command -v rkhunter &>/dev/null; then
+    log "Installing rkhunter from source..."
+    cd /tmp
+    curl -sL "https://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.6/rkhunter-1.4.6.tar.gz" -o rkhunter.tar.gz
+    tar xzf rkhunter.tar.gz
+    cd rkhunter-1.4.6
+    ./installer.sh --install --layout default 2>&1 | tee -a "$LOG"
+    ok "rkhunter installed from source"
+    cd "$SCRIPT_DIR"
+else
+    ok "rkhunter already installed"
+fi
+
+# --- lynis (security auditing & hardening advisor) ---
+if ! command -v lynis &>/dev/null; then
+    log "Installing lynis from git..."
+    git clone --depth 1 https://github.com/CISOfy/lynis.git /opt/lynis 2>&1 | tee -a "$LOG"
+    cat > /usr/local/bin/lynis <<'WRAPPER'
+#!/bin/bash
+cd /opt/lynis && ./lynis "$@"
+WRAPPER
+    chmod +x /usr/local/bin/lynis
+    ok "lynis installed to /opt/lynis"
+else
+    ok "lynis already installed"
+fi
+
+# --- psad (port scan detection) ---
+if ! command -v psad &>/dev/null; then
+    log "Installing psad from source..."
+    dnf install -y iptables perl-NetAddr-IP perl-Bit-Vector perl-Date-Calc perl-Unix-Syslog whois procps-ng 2>&1 | tee -a "$LOG" || true
+    cd /tmp
+    git clone --depth 1 https://github.com/mrash/psad.git 2>&1 | tee -a "$LOG"
+    cd /tmp/psad
+    # Non-interactive install: feed scripted answers
+    printf 'n\ny\ny\ny\ny\ny\ny\ny\nroot@localhost\nn\ny\nn\nn\ny\n' \
+        | perl install.pl 2>&1 | tee -a "$LOG" || warn "psad install had warnings — check log"
+    ok "psad installed from source"
+    cd "$SCRIPT_DIR"
+else
+    ok "psad already installed"
+fi
+
+ok "All tool installs done"
 
 # =============================================================================
 # AUDITD
@@ -83,7 +168,8 @@ sed -i 's/^space_left_action .*/space_left_action = SYSLOG/'     /etc/audit/audi
 sed -i 's/^admin_space_left_action .*/admin_space_left_action = SUSPEND/' /etc/audit/auditd.conf
 
 systemctl enable auditd
-systemctl restart auditd
+# auditd has RefuseManualStop=yes — must use legacy service command to restart
+service auditd restart
 
 # Load rules immediately without reboot
 if command -v augenrules &>/dev/null; then
@@ -135,17 +221,8 @@ logpath  = %(sshd_log)s
 maxretry = 3
 bantime  = 2h
 
-[apache-auth]
-enabled  = true
-
-[apache-badbots]
-enabled  = true
-
-[apache-noscript]
-enabled  = true
-
-[apache-overflows]
-enabled  = true
+# Apache jails intentionally omitted — Rocky hosts (SCP-OPENSSH-01, SCP-OPENVPN-01)
+# do not run Apache. Enabling them would cause fail2ban to fail on missing log paths.
 EOF
 
 systemctl enable fail2ban
@@ -219,9 +296,9 @@ cat > "$AIDE_COMP_CONF" <<'EOF'
 EOF
 
 # Ensure /etc/aide.conf includes the conf.d directory (idempotent)
-if ! grep -q '@@include /etc/aide.conf.d' /etc/aide.conf 2>/dev/null; then
-    echo '@@include /etc/aide.conf.d' >> /etc/aide.conf
-    ok "Added @@include /etc/aide.conf.d to /etc/aide.conf"
+if ! grep -q '@@include /etc/aide.conf.d/99-competition.conf' /etc/aide.conf 2>/dev/null; then
+    echo '@@include /etc/aide.conf.d/99-competition.conf' >> /etc/aide.conf
+    ok "Added @@include /etc/aide.conf.d/99-competition.conf to /etc/aide.conf"
 fi
 
 # Build initial database — takes a minute, run in background
@@ -345,6 +422,20 @@ ok "World-writable list saved"
 # =============================================================================
 log "=== Setting immutable flag on critical auth files ==="
 
+# Rocky hosts (SCP-OPENSSH-01 and SCP-OPENVPN-01) both need PasswordAuthentication yes:
+#   SCP-OPENSSH-01: SSH scoring checks scp073/scp343 via password auth
+#   SCP-OPENVPN-01: scorer SSHes in to query the management interface
+# Ensure "yes" is set before locking, so an attacker-set "no" can't get frozen in.
+if [[ -f /etc/ssh/sshd_config ]]; then
+    chattr -i /etc/ssh/sshd_config 2>/dev/null || true
+    if grep -q "^PasswordAuthentication" /etc/ssh/sshd_config; then
+        sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    else
+        echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+    fi
+    ok "Ensured PasswordAuthentication yes in sshd_config (required for scoring on Rocky hosts)"
+fi
+
 for f in /etc/passwd /etc/shadow /etc/gshadow /etc/group \
          /etc/sudoers /etc/ssh/sshd_config /etc/ld.so.preload; do
     [[ -f "$f" ]] || continue
@@ -355,16 +446,67 @@ done
 # chattr -i /etc/passwd  (etc.)
 
 # =============================================================================
+# /tmp AND /dev/shm HARDENING — noexec, nosuid, nodev
+# Wagon stages binaries in /tmp/.cache, beacon.py stages in /tmp/.sys/,
+# Vanini's sshbeacon stages through /tmp. Blocking execution here kills
+# all three staging paths.
+# =============================================================================
+log "=== Hardening /tmp and /dev/shm ==="
+
+# Remount /tmp with noexec if it's a separate mount or tmpfs
+if mountpoint -q /tmp 2>/dev/null; then
+    mount -o remount,noexec,nosuid,nodev /tmp 2>/dev/null \
+        && ok "/tmp remounted noexec,nosuid,nodev" \
+        || warn "/tmp remount failed"
+else
+    if ! grep -q '/tmp.*noexec' /etc/fstab; then
+        echo "tmpfs /tmp tmpfs defaults,noexec,nosuid,nodev,size=512M 0 0" >> /etc/fstab
+        mount -o remount /tmp 2>/dev/null || mount /tmp 2>/dev/null || true
+        ok "Added /tmp as tmpfs with noexec to fstab"
+    fi
+fi
+
+# Remount /dev/shm with noexec (fileless malware staging)
+if mountpoint -q /dev/shm 2>/dev/null; then
+    mount -o remount,noexec,nosuid,nodev /dev/shm 2>/dev/null \
+        && ok "/dev/shm remounted noexec,nosuid,nodev" \
+        || warn "/dev/shm remount failed"
+fi
+if ! grep -q '/dev/shm.*noexec' /etc/fstab; then
+    echo "tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev 0 0" >> /etc/fstab
+    ok "Added /dev/shm noexec to fstab"
+fi
+
+# Remount /var/tmp with noexec
+if mountpoint -q /var/tmp 2>/dev/null; then
+    mount -o remount,noexec,nosuid,nodev /var/tmp 2>/dev/null \
+        && ok "/var/tmp remounted noexec,nosuid,nodev" \
+        || warn "/var/tmp remount failed"
+fi
+
+# Clean out known Red Team staging directories
+for d in /tmp/.cache /tmp/.sys /tmp/.X11-unix/.hidden /dev/shm/.tmp; do
+    if [[ -d "$d" ]]; then
+        rm -rf "$d"
+        warn "Removed suspicious directory: $d"
+    fi
+done
+
+# =============================================================================
 # LOCK DOWN DNF — exclude firewall packages from reinstall
 # =============================================================================
 log "=== Excluding firewall packages from dnf to prevent reinstall ==="
 
 # Rocky/DNF equivalent of apt pinning: add to excludepkgs in dnf.conf
-if ! grep -q '^excludepkgs=' /etc/dnf/dnf.conf; then
-    echo 'excludepkgs=iptables nftables firewalld' >> /etc/dnf/dnf.conf
-else
-    # Merge into existing excludepkgs line
-    sed -i 's/^excludepkgs=\(.*\)/excludepkgs=\1 iptables nftables firewalld/' /etc/dnf/dnf.conf
+# dnf5 (Rocky 10) uses 'excludepkgs', older dnf uses 'exclude' — both are accepted
+if ! grep -qE '^exclude(pkgs)?=.*iptables' /etc/dnf/dnf.conf; then
+    if grep -q '^excludepkgs=' /etc/dnf/dnf.conf; then
+        sed -i 's/^excludepkgs=\(.*\)/excludepkgs=\1 iptables nftables firewalld/' /etc/dnf/dnf.conf
+    elif grep -q '^exclude=' /etc/dnf/dnf.conf; then
+        sed -i 's/^exclude=\(.*\)/exclude=\1 iptables nftables firewalld/' /etc/dnf/dnf.conf
+    else
+        echo 'excludepkgs=iptables,nftables,firewalld' >> /etc/dnf/dnf.conf
+    fi
 fi
 
 ok "iptables / nftables / firewalld excluded from dnf"
