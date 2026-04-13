@@ -50,9 +50,7 @@ foreach ($user in $encrypted.PSObject.Properties) {
         Write-Host "VERIFICATION FAILED for $($user.Name) — skipping!" -ForegroundColor Red
         continue
     }
-    if ($t) {
-        Write-Host "[DEBUG] $($user.Name) : $plaintext"
-    } else {
+    if (!$t) {
         if ($($user.Name) -ne "USE THIS PASSWORD FOR ANY OTHER USER NOT LISTED IN THE PACKET", "cyberrange") {
             Set-ADAccountPassword -Identity $user.Name `
                 -NewPassword $securePassword `
