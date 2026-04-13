@@ -42,15 +42,16 @@ $keyBytes = [System.Text.Encoding]::UTF8.GetBytes($keyPlain.PadRight(32).Substri
 foreach ($user in $encrypted.PSObject.Properties) {
     $securePassword = $user.Value.encrypted | ConvertTo-SecureString -Key $keyBytes
 
+    
+    $plaintext = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    )
+    if (-not (Confirm-Password $securePassword $user.Value.hash)) {
+        Write-Host "VERIFICATION FAILED for $($user.Name) — skipping!" -ForegroundColor Red
+        continue
+    }
     if ($t) {
-        $plaintext = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-            [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
-        )
         Write-Host "[DEBUG] $($user.Name) : $plaintext"
-        if (-not (Confirm-Password $securePassword $user.Value.hash)) {
-            Write-Host "VERIFICATION FAILED for $($user.Name) — skipping!" -ForegroundColor Red
-            continue
-        }
     } else {
         if ($($user.Name) -ne "USE THIS PASSWORD FOR ANY OTHER USER NOT LISTED IN THE PACKET", "cyberrange") {
             Set-ADAccountPassword -Identity $user.Name `

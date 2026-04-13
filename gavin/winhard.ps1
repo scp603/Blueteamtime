@@ -66,15 +66,15 @@ LockoutDuration = 15
 # 2. DISABLE THE CYBERRANGE ACCOUNT
 #    Permitted by the blue team packet ("YOU MAY DISABLE CYBERRANGE")
 # ════════════════════════════════════════════════════════════════════════════════
-Write-Host "`n[2] Disabling cyberrange account..." -ForegroundColor Cyan
+# Write-Host "`n[2] Disabling cyberrange account..." -ForegroundColor Cyan
 
-if ($isDC) {
-    Disable-ADAccount -Identity "cyberrange" -ErrorAction SilentlyContinue
-    Write-Host "  AD cyberrange account disabled." -ForegroundColor Green
-} else {
-    Disable-LocalUser -Name "cyberrange" -ErrorAction SilentlyContinue
-    Write-Host "  Local cyberrange account disabled." -ForegroundColor Green
-}
+# if ($isDC) {
+#     Disable-ADAccount -Identity "cyberrange" -ErrorAction SilentlyContinue
+#     Write-Host "  AD cyberrange account disabled." -ForegroundColor Green
+# } else {
+#     Disable-LocalUser -Name "cyberrange" -ErrorAction SilentlyContinue
+#     Write-Host "  Local cyberrange account disabled." -ForegroundColor Green
+# }
 
 
 # ════════════════════════════════════════════════════════════════════════════════
