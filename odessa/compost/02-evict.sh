@@ -228,6 +228,15 @@ ok "Bashrc cleanup complete"
 # =============================================================================
 log "\n--- [6/7] Restoring SSH configuration ---"
 
+# SCORING SAFETY: SCP-OPENSSH-01 (10.10.10.103) MUST keep PasswordAuthentication yes
+# for scp073/scp343. DO NOT run this script on 10.10.10.103 — use fix-ssh.sh instead.
+THIS_IP="$(hostname -I | awk '{print $1}')"
+if [[ "$THIS_IP" == "10.10.10.103" ]]; then
+    warn "ABORT: This is SCP-OPENSSH-01 (scoring SSH server) — disabling PasswordAuth breaks scoring."
+    warn "Use fix-ssh.sh on this host instead."
+    exit 1
+fi
+
 SSHD_CONFIG="/etc/ssh/sshd_config"
 chattr -i "$SSHD_CONFIG" 2>/dev/null || true
 cp "$SSHD_CONFIG" "$EVIDENCE/sshd_config.bak"

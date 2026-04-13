@@ -1,0 +1,10 @@
+USE foundation_db;
+INSERT INTO SCPFlagger (flag)
+VALUES (CONFIDENTIAL{easy_flag_7h3_f0und4ti0n})
+
+INSERT INTO experiments (id, scp_id, researcher, summary)
+VALUES(6, 'SCP-1000', 'Dr. Clef', 'CONFIDENTIAL{mysql_DEeP3r_1nT0_$CP}')
+
+UPDATE experiments
+SET summary = 'CONFIDENTIAL{easy_mysql_DEeP3r_1nTo_$CP}'
+WHERE id = 1;

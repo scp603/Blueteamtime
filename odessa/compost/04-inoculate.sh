@@ -129,19 +129,27 @@ warn "To add legitimate cron entries: chattr -i /etc/cron.d first"
 # =============================================================================
 log "\n--- [4] Locking SSH configuration ---"
 
+# SCORING SAFETY: SCP-OPENSSH-01 (10.10.10.103) MUST keep PasswordAuthentication yes
+# for scp073/scp343. DO NOT run this script on 10.10.10.103 — use fix-ssh.sh instead.
+THIS_IP="$(hostname -I | awk '{print $1}')"
 SSHD_CONFIG="/etc/ssh/sshd_config"
 chattr -i "$SSHD_CONFIG" 2>/dev/null || true
 
-# Verify the config is clean before locking
-if grep -q "^PasswordAuthentication yes" "$SSHD_CONFIG" 2>/dev/null; then
-    warn "PasswordAuthentication still YES — fixing before lock"
-    sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' "$SSHD_CONFIG"
-    hit "Corrected PasswordAuthentication to no"
-fi
+if [[ "$THIS_IP" == "10.10.10.103" ]]; then
+    warn "SCP-OPENSSH-01 detected — locking sshd_config WITHOUT disabling PasswordAuth (required for scoring)"
+    chattr +i "$SSHD_CONFIG" 2>/dev/null && ok "sshd_config locked (PasswordAuthentication preserved)" || warn "chattr failed"
+else
+    # Verify the config is clean before locking
+    if grep -q "^PasswordAuthentication yes" "$SSHD_CONFIG" 2>/dev/null; then
+        warn "PasswordAuthentication still YES — fixing before lock"
+        sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' "$SSHD_CONFIG"
+        hit "Corrected PasswordAuthentication to no"
+    fi
 
-chattr +i "$SSHD_CONFIG" 2>/dev/null \
-    && ok "sshd_config locked immutable — attacker cannot re-enable password auth" \
-    || warn "chattr on sshd_config failed"
+    chattr +i "$SSHD_CONFIG" 2>/dev/null \
+        && ok "sshd_config locked immutable — attacker cannot re-enable password auth" \
+        || warn "chattr on sshd_config failed"
+fi
 
 # =============================================================================
 # 5. SNAPSHOT BASHRC FILES

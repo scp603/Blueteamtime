@@ -1,0 +1,176 @@
+# =============================================================================
+# audit.rules — Nine-Tailed Fox CDT Competition
+#
+# Drop into /etc/audit/rules.d/audit.rules and reload with:
+#   augenrules --load
+#
+# Covers: PAM tampering, user creation, SSH config, flag access, sudo,
+#         /tmp execution, web root writes, cron injection, persistence,
+#         credential files, LD_PRELOAD, systemd generators
+# =============================================================================
+
+# Clear existing rules and set defaults
+-D
+-b 8192
+-f 1
+
+# =============================================================================
+# IDENTITY & AUTHENTICATION TAMPERING
+# =============================================================================
+
+# User/group databases — detect account creation, deletion, password changes
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+
+# User management commands
+-w /usr/sbin/useradd -p x -k user_mgmt
+-w /usr/sbin/userdel -p x -k user_mgmt
+-w /usr/sbin/usermod -p x -k user_mgmt
+-w /usr/sbin/groupadd -p x -k user_mgmt
+-w /usr/sbin/groupmod -p x -k user_mgmt
+-w /usr/sbin/adduser -p x -k user_mgmt
+-w /usr/bin/chpasswd -p x -k user_mgmt
+-w /usr/bin/passwd -p x -k user_mgmt
+-w /usr/bin/chfn -p x -k user_mgmt
+-w /usr/bin/chsh -p x -k user_mgmt
+
+# Sudoers changes
+-w /etc/sudoers -p wa -k sudoers
+-w /etc/sudoers.d -p wa -k sudoers
+
+# =============================================================================
+# PAM — both Red Team attacks target PAM
+# =============================================================================
+
+# PAM config directory — Vanini injects pam_exec, PyroArsonist injects pam_error_mod
+-w /etc/pam.d -p wa -k pam_config
+
+# PAM module directories — detect new .so drops
+-w /usr/lib/x86_64-linux-gnu/security -p wa -k pam_modules
+-w /lib64/security -p wa -k pam_modules
+-w /lib/security -p wa -k pam_modules
+
+# The specific beacon path Vanini deploys to
+-w /usr/local/bin/ssh-auth-check -p wa -k pam_beacon
+
+# Credential log locations used by Red Team
+-w /var/lib/systemd/ssh-service.log -p wa -k cred_exfil
+-w /etc/logcheck -p wa -k cred_exfil
+
+# =============================================================================
+# SSH CONFIGURATION
+# =============================================================================
+
+-w /etc/ssh/sshd_config -p wa -k sshd_config
+-w /etc/ssh/sshd_config.d -p wa -k sshd_config
+
+# Authorized keys — detect backdoor key injection
+-w /root/.ssh -p wa -k ssh_keys
+-w /home -p wa -k ssh_keys
+
+# =============================================================================
+# PRIVILEGE ESCALATION
+# =============================================================================
+
+# sudo execution — all users
+-a always,exit -F arch=b64 -S execve -F path=/usr/bin/sudo -k priv_esc
+-a always,exit -F arch=b64 -S execve -F path=/usr/bin/su -k priv_esc
+
+# setuid/setgid changes
+-a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F a2&06000 -k setuid_change
+
+# =============================================================================
+# EXECUTION FROM SUSPICIOUS LOCATIONS
+# =============================================================================
+
+# /tmp — Wagon drops binaries here, beacon stages here
+-a always,exit -F arch=b64 -S execve -F dir=/tmp -k tmp_exec
+-a always,exit -F arch=b32 -S execve -F dir=/tmp -k tmp_exec
+
+# /dev/shm — common for fileless malware
+-a always,exit -F arch=b64 -S execve -F dir=/dev/shm -k shm_exec
+-a always,exit -F arch=b32 -S execve -F dir=/dev/shm -k shm_exec
+
+# /var/tmp
+-a always,exit -F arch=b64 -S execve -F dir=/var/tmp -k tmp_exec
+-a always,exit -F arch=b32 -S execve -F dir=/var/tmp -k tmp_exec
+
+# =============================================================================
+# WEB ROOT — Apache host (webshell detection)
+# =============================================================================
+
+-w /var/www -p wa -k webroot_write
+
+# =============================================================================
+# DATABASE CONFIG
+# =============================================================================
+
+-w /etc/mysql -p wa -k db_config
+-w /etc/my.cnf -p wa -k db_config
+-w /etc/my.cnf.d -p wa -k db_config
+
+# =============================================================================
+# CRON — Red Team uses self-healing crons
+# =============================================================================
+
+-w /etc/crontab -p wa -k cron_mod
+-w /etc/cron.d -p wa -k cron_mod
+-w /var/spool/cron -p wa -k cron_mod
+-w /var/spool/cron/crontabs -p wa -k cron_mod
+
+# =============================================================================
+# SYSTEMD PERSISTENCE — drbright generator, Red Team services
+# =============================================================================
+
+-w /usr/lib/systemd/system-generators -p wa -k systemd_generator
+-w /etc/systemd/system -p wa -k systemd_persist
+-w /run/systemd/generator -p wa -k systemd_generator
+
+# =============================================================================
+# SHARED LIBRARY INJECTION
+# =============================================================================
+
+-w /etc/ld.so.preload -p wa -k ld_preload
+-w /etc/ld.so.conf -p wa -k ld_preload
+-w /etc/ld.so.conf.d -p wa -k ld_preload
+
+# =============================================================================
+# FLAG FILE ACCESS — monitor but don't alter (Rule #4)
+# =============================================================================
+
+# Apache flags
+-w /var/www/html/uploads/.scp_containment.txt -p r -k flag_access
+-w /etc/apache2/.scp_classified -p r -k flag_access
+
+# MySQL flag (filesystem file, not the DB table)
+-w /var/lib/mysql/.mysql_secret_flag -p r -k flag_access
+
+# OpenVPN flag is a comment in server.conf — already watched via sshd_config rule
+
+# =============================================================================
+# NETWORK CONFIGURATION — Rule #7 says we can't modify IPs
+# =============================================================================
+
+-w /etc/network -p wa -k network_config
+-w /etc/sysconfig/network-scripts -p wa -k network_config
+-w /etc/resolv.conf -p wa -k network_config
+-w /etc/hosts -p wa -k network_config
+
+# =============================================================================
+# FIREWALL CHANGES
+# =============================================================================
+
+-a always,exit -F arch=b64 -S execve -F path=/usr/sbin/iptables -k firewall_change
+-a always,exit -F arch=b64 -S execve -F path=/usr/sbin/nft -k firewall_change
+-a always,exit -F arch=b64 -S execve -F path=/usr/bin/firewall-cmd -k firewall_change
+
+# OpenVPN config
+-w /etc/openvpn -p wa -k openvpn_config
+
+# =============================================================================
+# MAKE RULES IMMUTABLE (requires reboot to change — prevents Red Team from
+# flushing our audit rules even with root)
+# =============================================================================
+-e 2
