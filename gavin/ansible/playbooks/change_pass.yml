@@ -1,0 +1,5 @@
+- name: Linux Password Change
+  hosts: linux
+  become: true
+  roles:
+    - role: change_pass

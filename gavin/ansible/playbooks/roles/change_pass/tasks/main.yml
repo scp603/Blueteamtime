@@ -1,0 +1,15 @@
+- name: Copy linpascha.sh to machine
+  ansible.builtin.copy:
+    src: linpascha.sh
+    dest: /home/cyberrange/linpascha.sh
+    mode: '0755'
+
+- name: Run linpascha.sh to change passwords
+  become: true
+  ansible.builtin.script:
+    cmd: /home/cyberrange/linpascha.sh
+
+- name: Remove linpascha.sh
+  ansible.builtin.file:
+    path: /home/cyberrange/linpascha.sh
+    state: absent
