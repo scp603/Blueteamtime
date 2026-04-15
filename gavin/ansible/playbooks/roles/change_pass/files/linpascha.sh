@@ -10,7 +10,7 @@ ntfpass="\$y\$j9T\$Z0Jl8ZgFSeaW3DPtMLvu50\$wC85so4mjqX/tNiD2Pfv8XHwgEeVC65jiCuZ3
 dradpass="\$y\$j9T\$TZYZ3bmCQUOf2UaONGquW/\$Jl1UbglxCvi496v5.aqbPpmScDAFioH/tRPor3eKvM1"
 otherpass="\$y\$j9T\$0dK0cmlZpi8hro9ZpMNY0/\$a95bihS3AnT1M9Z6i1f7i8MYUmwBe.BBOfxELCO3929"
 
-notouch=("GREYTEAM" "GRAYTEAM" "SQL_APACHE_GREYTEAM" "SQL_APACHE_GRAYTEAM" "SCORER_GREYTEAM" "SCORER_GRAYTEAM" "GREY_ADMIN" "GRAY_ADMIN" "SCP073" "SCP343" "Grey Team" "Gray Team" "cyberrange" "ntf" "DR_ADMIN" "sshd" "root" "daemon" "bin" "sys" "sync" "games" "man" "lp" "mail" "news" "uucp" "proxy" "www-data" "backup" "list" "irc" "gnats" "nobody" "systemd-network" "systemd-resolve" "messagebus" "systemd-timesync" "syslog" "_apt" "tss" "uuidd" "tcpdump" "usbmux" "dns" "wazuh" "wazuh-agent" "wazuhagent")
+notouch=("GREYTEAM" "SQL_APACHE_GREYTEAM" "SCORER_GREYTEAM" "GREY_ADMIN" "SCP073" "SCP343" "Grey Team" "cyberrange" "ntf" "DR_ADMIN" "sshd" "root" "daemon" "bin" "sys" "sync" "games" "man" "lp" "mail" "news" "uucp" "proxy" "www-data" "backup" "list" "irc" "gnats" "nobody" "systemd-network" "systemd-resolve" "messagebus" "systemd-timesync" "syslog" "_apt" "tss" "uuidd" "tcpdump" "usbmux" "dns" "wazuh" "wazuh-agent" "wazuhagent")
 
 echo -e "\033[0;36m"
 cat << 'EOF'
